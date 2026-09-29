@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    name: Backend (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [services/todo-service, gateway]
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: ${{ matrix.service }}/yarn.lock
+      - run: yarn install --frozen-lockfile
+      # Verification de la syntaxe de tous les fichiers source
+      - run: find src -name '*.js' -exec node --check {} \;
+
+  smoke:
+    name: Test de bout en bout de l'API
+    runs-on: ubuntu-latest
+    needs: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: cd services/todo-service && yarn install --frozen-lockfile
+      - run: cd gateway && yarn install --frozen-lockfile
+      - name: Demarrer les services
+        run: |
+          (cd services/todo-service && yarn start &)
+          (cd gateway && yarn start &)
+          sleep 3
+      - name: Verifier le CRUD via la passerelle
+        run: |
+          set -e
+          API=http://localhost:4000/api/todos
+          ID=$(curl -sf -X POST $API -H 'Content-Type: application/json' -d '{"title":"CI"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).id')
+          curl -sf $API/$ID
+          curl -sf -X PATCH $API/$ID -H 'Content-Type: application/json' -d '{"completed":true}'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $API/$ID)" = "204"
+          test "$(curl -s -o /dev/null -w '%{http_code}' $API/$ID)" = "404"
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn build
