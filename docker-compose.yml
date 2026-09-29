@@ -1,0 +1,25 @@
+# Orchestration des microservices : frontend -> gateway -> todo-service
+services:
+  todo-service:
+    build: ./services/todo-service
+    environment:
+      - PORT=4001
+
+  gateway:
+    build: ./gateway
+    environment:
+      - PORT=4000
+      - TODO_SERVICE_URL=http://todo-service:4001
+    ports:
+      - "4000:4000"
+    depends_on:
+      - todo-service
+
+  frontend:
+    build: ./frontend
+    environment:
+      - GATEWAY_URL=http://gateway:4000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - gateway
